@@ -1,3 +1,6 @@
+# Device:
+ne2-d11p
+
 # Check system logs Teltonika:
 
 logread -f
