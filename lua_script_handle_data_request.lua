@@ -2,6 +2,9 @@
 
 local socket = require("socket")
 
+ip = "192.168.198.230"
+port = 502
+
 -- Helpers
 local function bxor(a,b)
   local r,v = 0,1
@@ -69,12 +72,12 @@ function handle_data_request()
 
   local data = {}
   data.timestamp   = os.date("!%Y-%m-%dT%H:%M:%SZ")
-  data.device_name = "Teltonika01"
+  data.device_name = "Teltonika_B080"
 
   -- connect to Modbus TCP
   local s = socket.tcp()
   s:settimeout(1)
-  local ok, err = s:connect("192.168.1.7", 502)
+  local ok, err = s:connect(ip, port)
   if not ok then
     data.error = "connect_failed: " .. tostring(err)
     local f = io.open("/tmp/lua_script_status.log", "a")
