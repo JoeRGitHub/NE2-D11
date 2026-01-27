@@ -2,7 +2,7 @@
 
 local socket = require("socket")
 
-ip = "192.168.198.230"
+ip = "192.168.192.22"
 port = 502
 
 -- Log helper with rotation
@@ -88,7 +88,7 @@ function handle_data_request()
 
   local data = {}
   data.timestamp   = os.date("!%Y-%m-%dT%H:%M:%SZ")
-  data.device_name = "Teltonika_B080"
+  data.device_name = "B029"
 
   -- connect to Modbus TCP
   local s = socket.tcp()
@@ -288,4 +288,74 @@ function handle_data_request()
   log_write("SOLAR handle_data_request() finished")
 
   return data
+end
+
+-- ==========================================
+-- CLI TEST MODE
+-- This section runs when script is executed directly from CLI
+-- ==========================================
+local function cli_test()
+  print("=== LUA SCRIPT CLI TEST MODE ===")
+  print("Script path: " .. arg[0])
+  print("Timestamp: " .. os.date("!%Y-%m-%dT%H:%M:%SZ"))
+  print("")
+  
+  log_write("CLI TEST MODE: Starting test execution")
+  
+  -- Test socket library
+  print("Testing socket library...")
+  if socket then
+    print("✓ socket library loaded successfully")
+    print("  socket._VERSION: " .. tostring(socket._VERSION))
+  else
+    print("✗ ERROR: socket library not available!")
+    log_write("CLI TEST ERROR: socket library not found")
+    return
+  end
+  
+  -- Test network connectivity
+  print("")
+  print("Testing network connection to " .. ip .. ":" .. port .. "...")
+  local test_sock = socket.tcp()
+  test_sock:settimeout(2)
+  local ok, err = test_sock:connect(ip, port)
+  if ok then
+    print("✓ Network connection successful")
+    test_sock:close()
+  else
+    print("✗ Network connection FAILED: " .. tostring(err))
+    log_write("CLI TEST ERROR: Connection failed - " .. tostring(err))
+  end
+  
+  -- Call the main function
+  print("")
+  print("Calling handle_data_request()...")
+  local result = handle_data_request()
+  
+  -- Display results
+  print("")
+  print("=== RESULTS ===")
+  if result.error then
+    print("ERROR: " .. result.error)
+    log_write("CLI TEST: handle_data_request returned error - " .. result.error)
+  else
+    print("Success! Data retrieved:")
+    local count = 0
+    for k, v in pairs(result) do
+      print(string.format("  %s = %s", k, tostring(v)))
+      count = count + 1
+    end
+    print("")
+    print("Total fields: " .. count)
+    log_write("CLI TEST: handle_data_request completed successfully with " .. count .. " fields")
+  end
+  
+  print("")
+  print("Check log file for details: " .. LOG_FILE)
+  print("=== TEST COMPLETE ===")
+end
+
+-- Auto-run test if script is executed directly (not imported)
+if arg and arg[0] and arg[0]:match("lua_script_handle_data_request") then
+  cli_test()
 end
