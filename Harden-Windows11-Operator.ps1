@@ -108,8 +108,59 @@ Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\
 Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Search" -Name "BingSearchEnabled" -Value 0
 Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Search" -Name "CortanaConsent" -Value 0
 
-# Step 5: Additional Security Hardening
-Write-Host "[6/6] Applying additional security restrictions..." -ForegroundColor Yellow
+# Step 5: Create Desktop Shortcuts for Power Management
+Write-Host "[6/7] Creating desktop shortcuts (Logoff/Restart/Shutdown)..." -ForegroundColor Yellow
+
+$desktopPath = "$profilePath\Desktop"
+if (-not (Test-Path $desktopPath)) {
+    New-Item -Path $desktopPath -ItemType Directory -Force | Out-Null
+}
+
+$WshShell = New-Object -ComObject WScript.Shell
+
+# Create Logoff shortcut
+try {
+    $shortcut = $WshShell.CreateShortcut("$desktopPath\Logoff.lnk")
+    $shortcut.TargetPath = "shutdown.exe"
+    $shortcut.Arguments = "/l"
+    $shortcut.Description = "Log off current user"
+    $shortcut.IconLocation = "shell32.dll,44"
+    $shortcut.Save()
+    Write-Host "  ✓ Logoff shortcut created" -ForegroundColor Gray
+} catch {
+    Write-Host "  ⚠ Failed to create Logoff shortcut" -ForegroundColor Yellow
+}
+
+# Create Restart shortcut
+try {
+    $shortcut = $WshShell.CreateShortcut("$desktopPath\Restart.lnk")
+    $shortcut.TargetPath = "shutdown.exe"
+    $shortcut.Arguments = "/r /t 0"
+    $shortcut.Description = "Restart computer"
+    $shortcut.IconLocation = "shell32.dll,238"
+    $shortcut.Save()
+    Write-Host "  ✓ Restart shortcut created" -ForegroundColor Gray
+} catch {
+    Write-Host "  ⚠ Failed to create Restart shortcut" -ForegroundColor Yellow
+}
+
+# Create Shutdown shortcut
+try {
+    $shortcut = $WshShell.CreateShortcut("$desktopPath\Shutdown.lnk")
+    $shortcut.TargetPath = "shutdown.exe"
+    $shortcut.Arguments = "/s /t 0"
+    $shortcut.Description = "Shut down computer"
+    $shortcut.IconLocation = "shell32.dll,27"
+    $shortcut.Save()
+    Write-Host "  ✓ Shutdown shortcut created" -ForegroundColor Gray
+} catch {
+    Write-Host "  ⚠ Failed to create Shutdown shortcut" -ForegroundColor Yellow
+}
+
+[System.Runtime.Interopservices.Marshal]::ReleaseComObject($WshShell) | Out-Null
+
+# Step 6: Additional Security Hardening
+Write-Host "[7/7] Applying additional security restrictions..." -ForegroundColor Yellow
 
 # Disable Task Manager
 Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Policies\System" -Name "DisableTaskMgr" -Value 1
@@ -148,6 +199,11 @@ Write-Host "  ✓ Search disabled" -ForegroundColor Gray
 Write-Host "  ✓ Task Manager disabled" -ForegroundColor Gray
 Write-Host "  ✓ Registry Editor disabled" -ForegroundColor Gray
 Write-Host "  ✓ Control Panel disabled" -ForegroundColor Gray
+Write-Host ""
+Write-Host "Desktop Shortcuts Created:" -ForegroundColor Cyan
+Write-Host "  ✓ Logoff.lnk" -ForegroundColor Gray
+Write-Host "  ✓ Restart.lnk" -ForegroundColor Gray
+Write-Host "  ✓ Shutdown.lnk" -ForegroundColor Gray
 Write-Host ""
 Write-Host "IMPORTANT: User must log in once to create profile, then log out and log in again for all policies to take effect." -ForegroundColor Yellow
 Write-Host ""

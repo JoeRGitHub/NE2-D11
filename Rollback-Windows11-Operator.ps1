@@ -98,6 +98,19 @@ Remove-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersi
 Start-Sleep -Seconds 1
 reg unload "HKU\$userSID" 2>$null
 
+# Remove desktop shortcuts if they exist
+Write-Host ""
+Write-Host "Removing desktop shortcuts..." -ForegroundColor Yellow
+$desktopPath = "$profilePath\Desktop"
+$shortcuts = @("Logoff.lnk", "Restart.lnk", "Shutdown.lnk")
+foreach ($shortcut in $shortcuts) {
+    $shortcutPath = Join-Path $desktopPath $shortcut
+    if (Test-Path $shortcutPath) {
+        Remove-Item -Path $shortcutPath -Force -ErrorAction SilentlyContinue
+        Write-Host "  ✓ Removed $shortcut" -ForegroundColor Gray
+    }
+}
+
 Write-Host ""
 Write-Host "=== Registry Cleanup Complete ===" -ForegroundColor Green
 Write-Host ""
