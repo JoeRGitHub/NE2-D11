@@ -2,7 +2,7 @@
 
 local socket = require("socket")
 
-ip = "192.168.192.22"
+ip = "192.168.1.7"
 port = 502
 
 -- Log helper with rotation
@@ -88,7 +88,7 @@ function handle_data_request()
 
   local data = {}
   data.timestamp   = os.date("!%Y-%m-%dT%H:%M:%SZ")
-  data.device_name = "B029"
+  data.device_name = "414_151_48"
 
   -- connect to Modbus TCP
   local s = socket.tcp()

@@ -442,7 +442,6 @@ NE2-D11/
 ## Version History
 
 - **v2.0** (2026-01-16)
-
   - Added speedtest monitor script
   - Added CLI test modes
   - Improved error handling and logging

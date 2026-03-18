@@ -98,16 +98,16 @@ Remove-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersi
 Start-Sleep -Seconds 1
 reg unload "HKU\$userSID" 2>$null
 
-# Remove desktop shortcuts if they exist
+# Remove desktop shortcuts from Public Desktop (all users)
 Write-Host ""
-Write-Host "Removing desktop shortcuts..." -ForegroundColor Yellow
-$desktopPath = "$profilePath\Desktop"
+Write-Host "Removing desktop shortcuts from all users..." -ForegroundColor Yellow
+$publicDesktopPath = "C:\Users\Public\Desktop"
 $shortcuts = @("Logoff.lnk", "Restart.lnk", "Shutdown.lnk")
 foreach ($shortcut in $shortcuts) {
-    $shortcutPath = Join-Path $desktopPath $shortcut
+    $shortcutPath = Join-Path $publicDesktopPath $shortcut
     if (Test-Path $shortcutPath) {
         Remove-Item -Path $shortcutPath -Force -ErrorAction SilentlyContinue
-        Write-Host "  ✓ Removed $shortcut" -ForegroundColor Gray
+        Write-Host "  Removed $shortcut from Public Desktop" -ForegroundColor Gray
     }
 }
 
@@ -118,6 +118,13 @@ Write-Host ""
 # Remove user account unless -KeepUser is specified
 if (-not $KeepUser) {
     Write-Host "Removing user account '$Username'..." -ForegroundColor Yellow
+    
+    # Remove user from login screen registry
+    $specialAccountsPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList"
+    if (Test-Path $specialAccountsPath) {
+        Remove-ItemProperty -Path $specialAccountsPath -Name $Username -Force -ErrorAction SilentlyContinue
+        Write-Host "  Removed from login screen registry" -ForegroundColor Gray
+    }
     
     try {
         Remove-LocalUser -Name $Username -ErrorAction Stop
@@ -142,7 +149,8 @@ Write-Host ""
 Write-Host "Rollback Complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "Summary:" -ForegroundColor Cyan
-Write-Host "  ✓ All registry restrictions removed" -ForegroundColor Gray
-Write-Host "  ✓ User account removed (unless -KeepUser specified)" -ForegroundColor Gray
-Write-Host "  ✓ System restored to default state" -ForegroundColor Gray
+Write-Host "  All registry restrictions removed" -ForegroundColor Gray
+Write-Host "  Desktop shortcuts removed from all users" -ForegroundColor Gray
+Write-Host "  User account removed (unless -KeepUser specified)" -ForegroundColor Gray
+Write-Host "  System restored to default state" -ForegroundColor Gray
 Write-Host ""

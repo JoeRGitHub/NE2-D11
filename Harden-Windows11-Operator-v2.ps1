@@ -11,9 +11,6 @@ param(
     [SecureString]$Password
 )
 
-# Variable to store generated password for display
-$generatedPassword = $null
-
 # Function to set registry value
 function Set-RegistryValue {
     param(
@@ -33,7 +30,7 @@ Write-Host "=== Windows 11 Pro Hardening Script ===" -ForegroundColor Cyan
 Write-Host ""
 
 # Step 1: Create Operator User
-Write-Host "[1/6] Creating Operator user account..." -ForegroundColor Yellow
+Write-Host "[1/7] Creating Operator user account..." -ForegroundColor Yellow
 
 try {
     # Check if user already exists
@@ -43,42 +40,24 @@ try {
         Write-Host "  User '$Username' already exists. Skipping creation." -ForegroundColor Green
     } else {
         if (-not $Password) {
-            # Set fixed password
-            $generatedPassword = "9090"
-            $Password = ConvertTo-SecureString $generatedPassword -AsPlainText -Force
+            # Generate secure random password if not provided
+            $Password = ConvertTo-SecureString "Op3r@t0r$(Get-Random -Minimum 1000 -Maximum 9999)!" -AsPlainText -Force
         }
         
         New-LocalUser -Name $Username -Password $Password -FullName $FullName -Description $Description -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
-        
-        # Add user to Users group to ensure login screen visibility
-        Add-LocalGroupMember -Group "Users" -Member $Username -ErrorAction SilentlyContinue
-        
-        # Enable the account explicitly
-        Enable-LocalUser -Name $Username -ErrorAction SilentlyContinue
-        
         Write-Host "  User '$Username' created successfully." -ForegroundColor Green
-        Write-Host "  User added to 'Users' group." -ForegroundColor Green
     }
 } catch {
     Write-Host "  ERROR: Failed to create user - $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
 
-# Make user visible on login screen
-Write-Host "  Configuring login screen visibility..." -ForegroundColor Gray
-$specialAccountsPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList"
-if (-not (Test-Path $specialAccountsPath)) {
-    New-Item -Path $specialAccountsPath -Force | Out-Null
-}
-# Set to 1 to show user on login screen, 0 to hide
-New-ItemProperty -Path $specialAccountsPath -Name $Username -Value 1 -PropertyType DWORD -Force | Out-Null
-
 # Get the user SID for registry modifications
 $userSID = (Get-LocalUser -Name $Username).SID.Value
 $userRegPath = "Registry::HKEY_USERS\$userSID"
 
 # Load user registry hive if not loaded
-Write-Host "[2/6] Loading user registry hive..." -ForegroundColor Yellow
+Write-Host "[2/7] Loading user registry hive..." -ForegroundColor Yellow
 $profilePath = "C:\Users\$Username"
 $userHivePath = "$profilePath\NTUSER.DAT"
 
@@ -89,16 +68,16 @@ if (-not (Test-Path $userHivePath)) {
 }
 
 # Step 2: Disable Run Dialog (Win+R and Run command)
-Write-Host "[3/6] Disabling Run dialog..." -ForegroundColor Yellow
+Write-Host "[3/7] Disabling Run dialog..." -ForegroundColor Yellow
 Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "NoRun" -Value 1
 
 # Step 3: Disable Command Prompt and Batch Scripts
-Write-Host "[4/6] Disabling Command Prompt and batch script execution..." -ForegroundColor Yellow
+Write-Host "[4/7] Disabling Command Prompt and batch script execution..." -ForegroundColor Yellow
 
 # Disable cmd.exe completely
-Set-RegistryValue -Path "$userRegPath\Software\Policies\Microsoft\Windows\System" -Name "DisableCMD" -Value 2  # 2 = Disable cmd.exe and batch scripts
+Set-RegistryValue -Path "$userRegPath\Software\Policies\Microsoft\Windows\System" -Name "DisableCMD" -Value 2
 
-# Additional: Disable PowerShell for this user (optional but recommended)
+# Additional: Disable PowerShell for this user
 Set-RegistryValue -Path "$userRegPath\Software\Policies\Microsoft\Windows\PowerShell" -Name "EnableScripts" -Value 0
 Set-RegistryValue -Path "$userRegPath\Software\Policies\Microsoft\Windows\PowerShell" -Name "ExecutionPolicy" -Value "Restricted" -Type "String"
 
@@ -106,7 +85,7 @@ Set-RegistryValue -Path "$userRegPath\Software\Policies\Microsoft\Windows\PowerS
 Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows Script Host\Settings" -Name "Enabled" -Value 0
 
 # Step 4: Hide Taskbar, Start Menu, and Search
-Write-Host "[5/6] Hiding taskbar, Start menu, and Search..." -ForegroundColor Yellow
+Write-Host "[5/7] Hiding taskbar, Start menu, and Search..." -ForegroundColor Yellow
 
 # Hide entire taskbar
 Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "NoTaskbar" -Value 1
@@ -122,18 +101,17 @@ Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\
 
 # Disable Search
 Set-RegistryValue -Path "$userRegPath\Software\Policies\Microsoft\Windows\Explorer" -Name "DisableSearchBoxSuggestions" -Value 1
-Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Search" -Name "SearchboxTaskbarMode" -Value 0  # 0 = Hidden
+Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Search" -Name "SearchboxTaskbarMode" -Value 0
 Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" -Name "ShowCortanaButton" -Value 0
 
 # Disable Cortana
 Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Search" -Name "BingSearchEnabled" -Value 0
 Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Search" -Name "CortanaConsent" -Value 0
 
-# Step 5: Create Desktop Shortcuts for Power Management (All Users)
-Write-Host "[6/7] Creating desktop shortcuts for all users (Logoff/Restart/Shutdown)..." -ForegroundColor Yellow
+# Step 5: Create Desktop Shortcuts for Power Management
+Write-Host "[6/7] Creating desktop shortcuts..." -ForegroundColor Yellow
 
-# Use Public Desktop so shortcuts appear for ALL users
-$desktopPath = "C:\Users\Public\Desktop"
+$desktopPath = "$profilePath\Desktop"
 if (-not (Test-Path $desktopPath)) {
     New-Item -Path $desktopPath -ItemType Directory -Force | Out-Null
 }
@@ -148,9 +126,9 @@ try {
     $shortcut.Description = "Log off current user"
     $shortcut.IconLocation = "shell32.dll,44"
     $shortcut.Save()
-    Write-Host "   Logoff shortcut created" -ForegroundColor Gray
+    Write-Host "  ✓ Logoff shortcut created" -ForegroundColor Gray
 } catch {
-    Write-Host "   Failed to create Logoff shortcut" -ForegroundColor Yellow
+    Write-Host "  ⚠ Failed to create Logoff shortcut" -ForegroundColor Yellow
 }
 
 # Create Restart shortcut
@@ -161,9 +139,9 @@ try {
     $shortcut.Description = "Restart computer"
     $shortcut.IconLocation = "shell32.dll,238"
     $shortcut.Save()
-    Write-Host "Restart shortcut created" -ForegroundColor Gray
+    Write-Host "  ✓ Restart shortcut created" -ForegroundColor Gray
 } catch {
-    Write-Host "Failed to create Restart shortcut" -ForegroundColor Yellow
+    Write-Host "  ⚠ Failed to create Restart shortcut" -ForegroundColor Yellow
 }
 
 # Create Shutdown shortcut
@@ -174,9 +152,9 @@ try {
     $shortcut.Description = "Shut down computer"
     $shortcut.IconLocation = "shell32.dll,27"
     $shortcut.Save()
-    Write-Host "Shutdown shortcut created" -ForegroundColor Gray
+    Write-Host "  ✓ Shutdown shortcut created" -ForegroundColor Gray
 } catch {
-    Write-Host "Failed to create Shutdown shortcut" -ForegroundColor Yellow
+    Write-Host "  ⚠ Failed to create Shutdown shortcut" -ForegroundColor Yellow
 }
 
 [System.Runtime.Interopservices.Marshal]::ReleaseComObject($WshShell) | Out-Null
@@ -195,7 +173,7 @@ Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\
 Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "NoSetFolders" -Value 1
 
 # Disable File Explorer access to drives
-Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "NoViewOnDrive" -Value 0  # 0 = all drives visible, change as needed
+Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "NoViewOnDrive" -Value 0
 
 # Remove "Run as Administrator" context menu
 Set-RegistryValue -Path "$userRegPath\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer" -Name "NoRunAs" -Value 1
@@ -210,38 +188,24 @@ Write-Host ""
 Write-Host "=== Configuration Complete ===" -ForegroundColor Green
 Write-Host ""
 Write-Host "Operator User: $Username" -ForegroundColor Cyan
-Write-Host "Password: 9090" -ForegroundColor Cyan
-Write-Host "  (Password never expires and cannot be changed by user)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Restrictions Applied:" -ForegroundColor Cyan
-Write-Host "Run dialog disabled (Win+R)" -ForegroundColor Gray
-Write-Host "Command Prompt disabled" -ForegroundColor Gray
-Write-Host "Batch scripts (.bat/.cmd) blocked" -ForegroundColor Gray
-Write-Host "PowerShell execution disabled" -ForegroundColor Gray
-Write-Host "Taskbar hidden" -ForegroundColor Gray
-Write-Host "Start menu disabled (keyboard + mouse)" -ForegroundColor Gray
-Write-Host "Search disabled" -ForegroundColor Gray
-Write-Host "Task Manager disabled" -ForegroundColor Gray
-Write-Host "Registry Editor disabled" -ForegroundColor Gray
-Write-Host "Control Panel disabled" -ForegroundColor Gray
+Write-Host "  ✓ Run dialog disabled (Win+R)" -ForegroundColor Gray
+Write-Host "  ✓ Command Prompt disabled" -ForegroundColor Gray
+Write-Host "  ✓ Batch scripts (.bat/.cmd) blocked" -ForegroundColor Gray
+Write-Host "  ✓ PowerShell execution disabled" -ForegroundColor Gray
+Write-Host "  ✓ Taskbar hidden" -ForegroundColor Gray
+Write-Host "  ✓ Start menu disabled (keyboard + mouse)" -ForegroundColor Gray
+Write-Host "  ✓ Search disabled" -ForegroundColor Gray
+Write-Host "  ✓ Task Manager disabled" -ForegroundColor Gray
+Write-Host "  ✓ Registry Editor disabled" -ForegroundColor Gray
+Write-Host "  ✓ Control Panel disabled" -ForegroundColor Gray
 Write-Host ""
-Write-Host "Desktop Shortcuts Created (All Users):" -ForegroundColor Cyan
-Write-Host "Logoff.lnk (on all user desktops)" -ForegroundColor Gray
-Write-Host "Restart.lnk (on all user desktops)" -ForegroundColor Gray
-Write-Host "Shutdown.lnk (on all user desktops)" -ForegroundColor Gray
+Write-Host "Desktop Shortcuts Created:" -ForegroundColor Cyan
+Write-Host "  ✓ Logoff.lnk" -ForegroundColor Gray
+Write-Host "  ✓ Restart.lnk" -ForegroundColor Gray
+Write-Host "  ✓ Shutdown.lnk" -ForegroundColor Gray
 Write-Host ""
 Write-Host "IMPORTANT: User must log in once to create profile, then log out and log in again for all policies to take effect." -ForegroundColor Yellow
-Write-Host ""
-Write-Host "HOW TO LOG IN AS OPERATOR:" -ForegroundColor Yellow
-Write-Host "  1. Lock your computer (Win+L) or Sign out" -ForegroundColor Gray
-Write-Host "  2. On the login screen, look for 'Operator' user" -ForegroundColor Gray
-Write-Host "     OR click 'Other user' (bottom left)" -ForegroundColor Gray
-Write-Host "  3. Enter username: $Username" -ForegroundColor Gray
-Write-Host "  4. Enter password: 9090" -ForegroundColor Gray
-Write-Host ""
-Write-Host "TROUBLESHOOTING:" -ForegroundColor Yellow
-Write-Host "  - If user still not visible: Restart the computer" -ForegroundColor Gray
-Write-Host "  - User should now appear directly on login screen" -ForegroundColor Gray
-Write-Host "  - Registry updated to show user on login screen" -ForegroundColor Gray
 Write-Host ""
 Write-Host "To revert changes, run: .\Rollback-Windows11-Operator.ps1" -ForegroundColor Gray
