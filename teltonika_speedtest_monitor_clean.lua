@@ -3,10 +3,66 @@
 
 local LOG_FILE = "/tmp/speedtest_monitor.log"
 local ELK_LOG_FILE = "/tmp/speedtest_elk_send.log"
+local STATE_FILE = "/tmp/speedtest_state.txt"
 local MAX_LOG_SIZE = 200000
 local MAX_ELK_LOG_RECORDS = 50
 local INTERVAL = 1800
 local DEVICE_NAME = "B080"
+
+-- Number of cameras managed by this router (adjust per site)
+local NUM_CAMERAS = 2
+
+-- Estimated upload bitrate consumed per camera at each resolution (Mbps)
+local CAMERA_BITRATE = {
+    ["3840x2160"] = 10.0,  -- 4K: ~10 Mbps per camera
+    ["1080P"]     = 5.0,   -- 1080P: ~5 Mbps per camera
+    ["720P"]      = 2.5,   -- 720P: ~2.5 Mbps per camera
+}
+
+-- Headroom to keep free above camera load (Mbps)
+local HEADROOM_MBPS = 3.0
+
+-- Consecutive cycles required before upgrading resolution (anti-flap)
+local UPGRADE_CYCLES_REQUIRED = 2
+
+-- Consecutive cycles required before downgrading (1 = immediate for safety)
+local DOWNGRADE_CYCLES_REQUIRED = 1
+
+-- Resolution tier order (1=lowest, 3=highest)
+local RESOLUTION_TIERS = { "720P", "1080P", "3840x2160" }
+
+local function get_tier(resolution)
+    for i, r in ipairs(RESOLUTION_TIERS) do
+        if r == resolution then return i end
+    end
+    return 1  -- default to lowest if unknown
+end
+
+local function read_state()
+    local state = { resolution = "1080P", consecutive_better = 0, consecutive_worse = 0 }
+    local f = io.open(STATE_FILE, "r")
+    if f then
+        for line in f:lines() do
+            local k, v = line:match("^(%w+)=(.+)$")
+            if k == "resolution" then state.resolution = v
+            elseif k == "consecutive_better" then state.consecutive_better = tonumber(v) or 0
+            elseif k == "consecutive_worse" then state.consecutive_worse = tonumber(v) or 0
+            end
+        end
+        f:close()
+    end
+    return state
+end
+
+local function write_state(state)
+    local f = io.open(STATE_FILE, "w")
+    if f then
+        f:write("resolution=" .. state.resolution .. "\n")
+        f:write("consecutive_better=" .. tostring(state.consecutive_better) .. "\n")
+        f:write("consecutive_worse=" .. tostring(state.consecutive_worse) .. "\n")
+        f:close()
+    end
+end
 
 local function log_message(message)
     local lf = io.open(LOG_FILE, "a")
@@ -101,64 +157,84 @@ local function check_install_speedtest()
     return false
 end
 
-local function recommend_resolution(upload_speed)
+local function recommend_resolution(upload_speed, new_resolution, estimated_capacity, current_resolution)
     print("")
     print("================================================")
     print("CAMERA RESOLUTION RECOMMENDATION")
     print("================================================")
-    print(string.format("Upload Speed: %.2f Mbps", upload_speed))
-    print("")
-    
-    local recommendation
-    
-    if upload_speed >= 10 then
-        print("EXCELLENT: 1080p @ High Bitrate (4-6 Mbps)")
-        print("  You can also use 1440p or 4K if camera supports it")
-        recommendation = "1080p_high"
-    elseif upload_speed >= 5 then
-        print("GOOD: 1080p @ Medium Bitrate (3-4 Mbps)")
-        print("  Stable full HD streaming")
-        recommendation = "1080p_medium"
-    elseif upload_speed >= 3 then
-        print("FAIR: 720p @ High Bitrate (2-3 Mbps)")
-        print("  OR 1080p @ Low Bitrate")
-        recommendation = "720p_high"
-    elseif upload_speed >= 1.5 then
-        print("LIMITED: 720p @ Medium Bitrate (1.5-2 Mbps)")
-        print("  Acceptable quality for most purposes")
-        recommendation = "720p_medium"
-    elseif upload_speed >= 0.8 then
-        print("POOR: 480p @ Medium Bitrate (0.8-1.5 Mbps)")
-        print("  OR 720p @ Very Low Bitrate")
-        recommendation = "480p"
-    else
-        print("VERY POOR: 360p or Lower (< 0.8 Mbps)")
-        print("  Consider upgrading network connection")
-        recommendation = "360p"
-    end
-    
+    print(string.format("Measured Upload (headroom only): %.2f Mbps", upload_speed))
+    print(string.format("Current Resolution: %s", current_resolution))
+    print(string.format("Estimated Camera Load: %.2f Mbps (%d cameras)", NUM_CAMERAS * (CAMERA_BITRATE[current_resolution] or 5.0), NUM_CAMERAS))
+    print(string.format("Estimated Total Capacity: %.2f Mbps", estimated_capacity))
+    print(string.format("Recommended: %s", new_resolution))
     print("================================================")
     print("")
-    
-    log_message(string.format("RECOMMENDATION: %s for %.2f Mbps upload", recommendation, upload_speed))
-    
-    return recommendation
+
+    log_message(string.format(
+        "RECOMMENDATION: %s (measured=%.2fMbps, capacity=%.2fMbps, current=%s)",
+        new_resolution, upload_speed, estimated_capacity, current_resolution))
 end
 
-local function get_resolution_recommendation(upload_speed)
-    if upload_speed >= 10 then
-        return "1080p_high"
-    elseif upload_speed >= 5 then
-        return "1080p_medium"
-    elseif upload_speed >= 3 then
-        return "720p_high"
-    elseif upload_speed >= 1.5 then
-        return "720p_medium"
-    elseif upload_speed >= 0.8 then
-        return "480p"
-    else
-        return "360p"
+-- Returns the best tier the link can sustain given total estimated capacity
+local function best_affordable_resolution(estimated_capacity)
+    local best = RESOLUTION_TIERS[1]
+    for _, tier in ipairs(RESOLUTION_TIERS) do
+        local needed = NUM_CAMERAS * (CAMERA_BITRATE[tier] or 5.0) + HEADROOM_MBPS
+        if estimated_capacity >= needed then
+            best = tier
+        end
     end
+    return best
+end
+
+-- Main decision function with hysteresis and capacity correction
+-- Returns: new_resolution, state (updated), estimated_capacity
+local function get_resolution_recommendation(upload_speed)
+    local state = read_state()
+    local current = state.resolution
+
+    -- Estimated total capacity = measured headroom + camera load at current resolution
+    local current_camera_load = NUM_CAMERAS * (CAMERA_BITRATE[current] or 5.0)
+    local estimated_capacity = upload_speed + current_camera_load
+
+    local target = best_affordable_resolution(estimated_capacity)
+    local current_tier = get_tier(current)
+    local target_tier = get_tier(target)
+
+    local new_resolution = current  -- default: no change
+
+    if target_tier > current_tier then
+        -- Potential upgrade
+        state.consecutive_better = state.consecutive_better + 1
+        state.consecutive_worse = 0
+        log_message(string.format(
+            "HYSTERESIS: Upgrade candidate %s (cycle %d/%d)",
+            target, state.consecutive_better, UPGRADE_CYCLES_REQUIRED))
+        if state.consecutive_better >= UPGRADE_CYCLES_REQUIRED then
+            new_resolution = target
+            state.consecutive_better = 0
+        end
+    elseif target_tier < current_tier then
+        -- Potential downgrade
+        state.consecutive_worse = state.consecutive_worse + 1
+        state.consecutive_better = 0
+        log_message(string.format(
+            "HYSTERESIS: Downgrade candidate %s (cycle %d/%d)",
+            target, state.consecutive_worse, DOWNGRADE_CYCLES_REQUIRED))
+        if state.consecutive_worse >= DOWNGRADE_CYCLES_REQUIRED then
+            new_resolution = target
+            state.consecutive_worse = 0
+        end
+    else
+        -- Stable
+        state.consecutive_better = 0
+        state.consecutive_worse = 0
+    end
+
+    state.resolution = new_resolution
+    write_state(state)
+
+    return new_resolution, estimated_capacity
 end
 
 local function run_speedtest()
@@ -239,11 +315,13 @@ local function run_speedtest()
     download = tonumber(download) or download or 0
     ping = tonumber(ping) or 0
     
-    log_message(string.format("Results: Download=%.2fMbps, Upload=%.2fMbps, Ping=%.2fms", 
+    log_message(string.format("Results: Download=%.2fMbps, Upload=%.2fMbps, Ping=%.2fms",
                               download, upload, ping))
-    
-    recommend_resolution(upload)
-    
+
+    local state = read_state()
+    local new_res, estimated_capacity = get_resolution_recommendation(upload)
+    recommend_resolution(upload, new_res, estimated_capacity, state.resolution)
+
     return true
 end
 
@@ -333,10 +411,15 @@ function handle_data_request()
     data.download_mbps = download
     data.upload_mbps = upload
     data.ping_ms = ping
-    data.recommended_resolution = get_resolution_recommendation(upload)
-    
-    log_message(string.format("SPEEDTEST Results: Download=%.2fMbps, Upload=%.2fMbps, Ping=%.2fms, Recommendation=%s", 
-                              download, upload, ping, data.recommended_resolution))
+
+    local current_state = read_state()
+    local new_res, estimated_capacity = get_resolution_recommendation(upload)
+    data.recommended_resolution = new_res
+    data.estimated_capacity_mbps = estimated_capacity
+    data.previous_resolution = current_state.resolution
+
+    log_message(string.format("SPEEDTEST Results: Download=%.2fMbps, Upload=%.2fMbps, Ping=%.2fms, Capacity=%.2fMbps, Recommendation=%s",
+                              download, upload, ping, estimated_capacity, data.recommended_resolution))
     
     log_message("SPEEDTEST handle_data_request() finished")
     
