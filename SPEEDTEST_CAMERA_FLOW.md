@@ -2,6 +2,23 @@
 
 ## Overview
 
+Yes, exactly. Here is the full flow end-to-end:
+
+1. **Teltonika (B080)** runs the Lua script every 30 min → measures upload speed → calculates estimated capacity → decides recommended resolution → sends JSON to Elasticsearch (`speedtest-*` index)
+
+2. **ElastAlert** (running on your ELK server) checks every minute → detects when `recommended_resolution` changed for `B080` → sends alert to AWS SQS
+
+3. **cambot** polls SQS → receives the alert → reads the Cameras sheet from Google Sheets → filters cameras where:
+   - Camera ID starts with `B080` (same router)
+   - Column G = `Enable`
+
+4. For each matching camera → calls `changeResolutionOperation` with the new resolution
+
+So the only two things you need to do to activate it for a camera:
+
+- Put `Enable` in column G of that camera's row in the Cameras sheet
+- Deploy the Lua script to the B080 Teltonika router
+
 Automated system that monitors network upload speed on Teltonika router and dynamically adjusts PTZ camera resolution based on available bandwidth.
 
 **Components:**
