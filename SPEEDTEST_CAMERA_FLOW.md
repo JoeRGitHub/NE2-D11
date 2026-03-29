@@ -2,7 +2,7 @@
 
 ## Overview
 
-Yes, exactly. Here is the full flow end-to-end:
+Full flow end-to-end:
 
 1. **Teltonika (B080)** runs the Lua script every 30 min → measures upload speed → calculates estimated capacity → decides recommended resolution → sends JSON to Elasticsearch (`speedtest-*` index)
 
