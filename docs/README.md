@@ -8,9 +8,13 @@ ne2-d11p (Teltonika RUT251)
 
 ## Scripts Overview
 
-### 1. Solar Controller Monitoring (`lua_script_handle_data_request_02.lua`)
+### 1. Solar Controller Monitoring (`lua_script_handle_data_request_03.lua`)
 
 Monitors Epever/MPPT solar charge controller via Modbus TCP.
+
+`_03` replaces `_02`: it reads 0x311A-0x311B and 0x311D separately, because 0x311C doesn't exist
+and the single 0x311A-0x311D read failed, so `SOC` (battery level) was never sent.
+`Charge_Percentage` (0x906E) is a controller setting (depth of charge), not the battery level.
 
 **Features:**
 
@@ -42,7 +46,7 @@ Monitors network speed and recommends camera resolution settings.
 
 ```bash
 # Via SCP
-scp lua_script_handle_data_request_02.lua root@192.168.198.226:/root/
+scp lua_script_handle_data_request_03.lua root@192.168.198.226:/root/
 scp teltonika_speedtest_monitor.lua root@192.168.198.226:/root/
 
 # Or via SSH
@@ -57,7 +61,7 @@ ssh root@192.168.198.226
 **CLI Test Mode (with diagnostics):**
 
 ```bash
-lua lua_script_handle_data_request_02.lua
+lua lua_script_handle_data_request_03.lua
 ```
 
 **For Data to Server Service:**
@@ -251,7 +255,7 @@ device_name: "Teltonika_Speedtest" AND recommended_resolution: "1080p_high"
 1. Go to: Services → Data to Server → Collector Configuration
 2. Add new collector:
    - **Name:** Solar_Monitor
-   - **Script:** `/root/lua_script_handle_data_request_02.lua`
+   - **Script:** `/root/lua_script_handle_data_request_03.lua`
    - **Function:** `handle_data_request`
 3. Configure sending interval (recommended: 5-15 minutes)
 
@@ -359,7 +363,7 @@ telnet 192.168.198.230 502
 lua -v
 
 # Test script syntax
-lua -l lua_script_handle_data_request_02.lua
+lua -l lua_script_handle_data_request_03.lua
 ```
 
 ### Speedtest Script Issues
@@ -413,7 +417,7 @@ Change to:
 
 ### Change Solar Controller IP
 
-Edit `lua_script_handle_data_request_02.lua`:
+Edit `lua_script_handle_data_request_03.lua`:
 
 ```lua
 ip = "192.168.198.230"  -- Change to your device IP
@@ -431,7 +435,7 @@ port = 502
 
 ```
 NE2-D11/
-├── lua_script_handle_data_request_02.lua    # Solar monitoring
+├── lua_script_handle_data_request_03.lua    # Solar monitoring
 ├── lua_script_handle_data_request.lua       # Original version
 ├── teltonika_speedtest_monitor.lua          # Network speed monitor
 ├── teltonika_speedtest_monitor.sh           # Shell version (legacy)

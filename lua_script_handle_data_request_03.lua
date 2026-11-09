@@ -142,11 +142,17 @@ function handle_data_request()
     data.Components_Temp = string.format("%.2fC", s16(p,8) * 0.01)
   end
 
-  p = rd(s, 0x311A, 4)
-  if p and #p > 10 then
+  -- 0x311C doesn't exist (EPEVER MODBUS.pdf): one read of 0x311A-0x311D gets an exception
+  -- and loses SOC too, so read 0x311A-0x311B and 0x311D separately
+  p = rd(s, 0x311A, 2)
+  if p and #p > 6 then
     data.SOC                = tostring(u16(p,4)) .. "%"
     data.Remote_Batt_Temp   = string.format("%.2fC", s16(p,6) * 0.01)
-    data.System_RatedVoltage= string.format("%.2fV", u16(p,10) * 0.01)
+  end
+
+  p = rd(s, 0x311D, 1)
+  if p and #p > 4 then
+    data.System_RatedVoltage= string.format("%.2fV", u16(p,4) * 0.01)
   end
 
   -- === STATUS ===
@@ -275,6 +281,7 @@ function handle_data_request()
     data.Equalize_Duration   = tostring(u16(p,4))  .. "min"
     data.Boost_Duration      = tostring(u16(p,6))  .. "min"
     data.Discharge_Percentage= string.format("%.2f%%", u16(p,8)  * 0.01)
+    -- A setting (0x906E, depth of charge), not the battery level: that is SOC above
     data.Charge_Percentage   = string.format("%.2f%%", u16(p,10) * 0.01)
   end
 
